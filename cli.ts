@@ -5,6 +5,7 @@ import { execSync } from "child_process"
 import { existsSync, readFileSync, writeFileSync, mkdirSync } from "fs"
 import { homedir } from "os"
 import { join } from "path"
+import { loadPluginConfigSync, mergeConfig } from "./lib/config"
 
 const OPENCODE_CONFIG_DIR = join(homedir(), ".config", "opencode")
 const OPENCODE_CONFIG_PATH = join(OPENCODE_CONFIG_DIR, "opencode.json")
@@ -76,17 +77,7 @@ function addPluginToConfig(config: Record<string, unknown>): Record<string, unkn
   return { ...config, plugin: plugins }
 }
 
-function savePluginConfig(repositories: string[]): void {
-  const config = {
-    $schema: "https://raw.githubusercontent.com/activadee/opencode-auth-sync/main/schema.json",
-    enabled: true,
-    credentialsPath: "~/.local/share/opencode/auth.json",
-    secretName: "OPENCODE_AUTH_JSON",
-    repositories,
-    debounceMs: 1000,
-  }
-  writeFileSync(PLUGIN_CONFIG_PATH, JSON.stringify(config, null, 2) + "\n")
-}
+
 
 async function main() {
   console.clear()
@@ -132,14 +123,8 @@ async function main() {
     process.exit(1)
   }
 
-  // Load existing config if present
-  let existingRepos: string[] = []
-  if (existsSync(PLUGIN_CONFIG_PATH)) {
-    try {
-      const existing = JSON.parse(readFileSync(PLUGIN_CONFIG_PATH, "utf-8"))
-      existingRepos = existing.repositories || []
-    } catch {}
-  }
+  const existingConfig = loadPluginConfigSync(PLUGIN_CONFIG_PATH)
+  const existingRepos = existingConfig.repositories || []
 
   // Repository selection
   const repoOptions = repos.map((repo) => ({
@@ -160,11 +145,11 @@ async function main() {
     process.exit(0)
   }
 
-  // Secret name configuration
+  const existingSecretName = existingConfig.secretName || "OPENCODE_AUTH_JSON"
   const secretName = await p.text({
     message: "GitHub secret name",
-    placeholder: "OPENCODE_AUTH_JSON",
-    defaultValue: "OPENCODE_AUTH_JSON",
+    placeholder: existingSecretName,
+    defaultValue: existingSecretName,
     validate: (value) => {
       if (value && !/^[A-Z_][A-Z0-9_]*$/.test(value)) {
         return "Use uppercase letters, numbers, and underscores only"
@@ -191,14 +176,16 @@ async function main() {
   // Execute setup
   s.start("Configuring plugin")
 
-  // Save plugin config
+  mkdirSync(OPENCODE_CONFIG_DIR, { recursive: true })
+  
+  const userUpdates = {
+    repositories: selectedRepos as string[],
+    secretName: secretName || existingSecretName,
+  }
+  const mergedConfig = mergeConfig(existingConfig, userUpdates)
   const pluginConfig = {
     $schema: "https://raw.githubusercontent.com/activadee/opencode-auth-sync/main/schema.json",
-    enabled: true,
-    credentialsPath: "~/.local/share/opencode/auth.json",
-    secretName: secretName || "OPENCODE_AUTH_JSON",
-    repositories: selectedRepos as string[],
-    debounceMs: 1000,
+    ...mergedConfig,
   }
   writeFileSync(PLUGIN_CONFIG_PATH, JSON.stringify(pluginConfig, null, 2) + "\n")
 

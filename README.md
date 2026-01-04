@@ -18,6 +18,8 @@ The interactive setup wizard will:
 3. Let you select which repos to sync
 4. Configure the plugin automatically
 
+Running the wizard again will merge your changes with the existing configuration, preserving any custom settings like `debounceMs` or `credentialsPath` that you've modified.
+
 ## Manual Installation
 
 Add to `~/.config/opencode/opencode.json`:
