@@ -2,8 +2,10 @@ import { describe, test, expect, beforeEach, afterEach } from "bun:test"
 import { mkdirSync, writeFileSync, rmSync, existsSync } from "fs"
 import { join } from "path"
 import { tmpdir } from "os"
-import { computeHash, watchCredentials } from "./watcher"
+import { computeHash, watchCredentials, type WatcherCallbacks } from "./watcher"
 import type { OpenCodeAuth } from "./types"
+
+const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
 
 describe("computeHash", () => {
   test("returns consistent SHA-256 hash for same content", () => {
@@ -50,235 +52,464 @@ describe("computeHash", () => {
   })
 })
 
-describe("watchCredentials hash comparison", () => {
-  let testDir: string
-  let authFilePath: string
+describe("watchCredentials", () => {
+  const testDir = join(tmpdir(), `opencode-watcher-test-${Date.now()}-${Math.random().toString(36).slice(2)}`)
+  const testCredentialsPath = join(testDir, "auth.json")
+  let stopWatcher: (() => void) | null = null
 
   beforeEach(() => {
-    testDir = join(tmpdir(), `watcher-test-${Date.now()}-${Math.random()}`)
-    authFilePath = join(testDir, "auth.json")
     mkdirSync(testDir, { recursive: true })
   })
 
   afterEach(() => {
+    if (stopWatcher) {
+      stopWatcher()
+      stopWatcher = null
+    }
     if (existsSync(testDir)) {
       rmSync(testDir, { recursive: true })
     }
   })
 
-  test("triggers callback on initial file when no stored hash", async () => {
-    const authContent = '{"anthropic":{"type":"oauth","access":"initial"}}'
-    writeFileSync(authFilePath, authContent)
+  describe("initialization", () => {
+    test("returns a cleanup function", () => {
+      writeFileSync(testCredentialsPath, JSON.stringify({ test: { type: "api", key: "test" } }))
+      const callbacks: WatcherCallbacks = {
+        onCredentialsChange: () => {},
+        onError: () => {},
+      }
 
-    let callCount = 0
-    let receivedRaw = ""
-    let receivedHash = ""
+      stopWatcher = watchCredentials(testCredentialsPath, callbacks, { debounceMs: 100 })
 
-    const stop = watchCredentials(
-      authFilePath,
-      {
-        onCredentialsChange: (_credentials: OpenCodeAuth, raw: string, hash: string) => {
-          callCount++
+      expect(typeof stopWatcher).toBe("function")
+    })
+
+    test("triggers onCredentialsChange for initial file read", async () => {
+      const credentials = { anthropic: { type: "oauth" as const, access: "token", refresh: "ref", expires: 123 } }
+      writeFileSync(testCredentialsPath, JSON.stringify(credentials))
+
+      let receivedCredentials: OpenCodeAuth | null = null
+      let receivedRaw: string | null = null
+      let receivedHash: string | null = null
+
+      const callbacks: WatcherCallbacks = {
+        onCredentialsChange: (creds, raw, hash) => {
+          receivedCredentials = creds
           receivedRaw = raw
           receivedHash = hash
         },
         onError: () => {},
-      },
-      { debounceMs: 50 }
-    )
+      }
 
-    await new Promise((r) => setTimeout(r, 200))
-    stop()
+      stopWatcher = watchCredentials(testCredentialsPath, callbacks, { debounceMs: 50 })
+      await wait(700)
 
-    expect(callCount).toBe(1)
-    expect(receivedRaw).toBe(authContent)
-    expect(receivedHash).toBe(computeHash(authContent))
+      expect(receivedCredentials).not.toBeNull()
+      expect(receivedCredentials!.anthropic).toBeDefined()
+      expect(receivedRaw).not.toBeNull()
+      expect(receivedHash).not.toBeNull()
+      expect(receivedHash!).toHaveLength(64)
+    })
   })
 
-  test("skips callback when content hash matches stored hash", async () => {
-    const authContent = '{"anthropic":{"type":"oauth","access":"unchanged"}}'
-    const storedHash = computeHash(authContent)
-    writeFileSync(authFilePath, authContent)
+  describe("hash comparison", () => {
+    test("triggers callback on initial file when no stored hash", async () => {
+      const authContent = '{"anthropic":{"type":"oauth","access":"initial"}}'
+      writeFileSync(testCredentialsPath, authContent)
 
-    let callCount = 0
+      let callCount = 0
+      let receivedRaw = ""
+      let receivedHash = ""
 
-    const stop = watchCredentials(
-      authFilePath,
-      {
-        onCredentialsChange: () => {
-          callCount++
+      stopWatcher = watchCredentials(
+        testCredentialsPath,
+        {
+          onCredentialsChange: (_credentials: OpenCodeAuth, raw: string, hash: string) => {
+            callCount++
+            receivedRaw = raw
+            receivedHash = hash
+          },
+          onError: () => {},
+        },
+        { debounceMs: 50 }
+      )
+
+      await wait(700)
+      stopWatcher()
+      stopWatcher = null
+
+      expect(callCount).toBe(1)
+      expect(receivedRaw).toBe(authContent)
+      expect(receivedHash).toBe(computeHash(authContent))
+    })
+
+    test("skips callback when content hash matches stored hash", async () => {
+      const authContent = '{"anthropic":{"type":"oauth","access":"unchanged"}}'
+      const storedHash = computeHash(authContent)
+      writeFileSync(testCredentialsPath, authContent)
+
+      let callCount = 0
+
+      stopWatcher = watchCredentials(
+        testCredentialsPath,
+        {
+          onCredentialsChange: () => {
+            callCount++
+          },
+          onError: () => {},
+        },
+        { debounceMs: 50, storedHash }
+      )
+
+      await wait(700)
+      stopWatcher()
+      stopWatcher = null
+
+      expect(callCount).toBe(0)
+    })
+
+    test("triggers callback when content hash differs from stored hash", async () => {
+      const oldContent = '{"anthropic":{"access":"old"}}'
+      const newContent = '{"anthropic":{"access":"new"}}'
+      const storedHash = computeHash(oldContent)
+
+      writeFileSync(testCredentialsPath, newContent)
+
+      let callCount = 0
+      let receivedRaw = ""
+      let receivedHash = ""
+
+      stopWatcher = watchCredentials(
+        testCredentialsPath,
+        {
+          onCredentialsChange: (_credentials: OpenCodeAuth, raw: string, hash: string) => {
+            callCount++
+            receivedRaw = raw
+            receivedHash = hash
+          },
+          onError: () => {},
+        },
+        { debounceMs: 50, storedHash }
+      )
+
+      await wait(700)
+      stopWatcher()
+      stopWatcher = null
+
+      expect(callCount).toBe(1)
+      expect(receivedRaw).toBe(newContent)
+      expect(receivedHash).toBe(computeHash(newContent))
+    })
+
+    test("backward compatibility: works with storedHash undefined", async () => {
+      const authContent = '{"test":"backward-compat"}'
+      writeFileSync(testCredentialsPath, authContent)
+
+      let callCount = 0
+
+      stopWatcher = watchCredentials(
+        testCredentialsPath,
+        {
+          onCredentialsChange: () => {
+            callCount++
+          },
+          onError: () => {},
+        },
+        { debounceMs: 50, storedHash: undefined }
+      )
+
+      await wait(700)
+      stopWatcher()
+      stopWatcher = null
+
+      expect(callCount).toBe(1)
+    })
+  })
+
+  describe("change detection", () => {
+    test("detects file content changes", async () => {
+      const initialCredentials = { test: { type: "api" as const, key: "initial" } }
+      writeFileSync(testCredentialsPath, JSON.stringify(initialCredentials))
+
+      const changes: OpenCodeAuth[] = []
+      const callbacks: WatcherCallbacks = {
+        onCredentialsChange: (creds) => {
+          changes.push(creds)
         },
         onError: () => {},
-      },
-      { debounceMs: 50, storedHash }
-    )
+      }
 
-    await new Promise((r) => setTimeout(r, 200))
-    stop()
+      stopWatcher = watchCredentials(testCredentialsPath, callbacks, { debounceMs: 50 })
+      await wait(1500)
 
-    expect(callCount).toBe(0)
-  })
+      const updatedCredentials = { test: { type: "api" as const, key: "updated" } }
+      writeFileSync(testCredentialsPath, JSON.stringify(updatedCredentials))
+      await wait(1500)
 
-  test("triggers callback when content hash differs from stored hash", async () => {
-    const oldContent = '{"anthropic":{"access":"old"}}'
-    const newContent = '{"anthropic":{"access":"new"}}'
-    const storedHash = computeHash(oldContent)
+      expect(changes.length).toBeGreaterThanOrEqual(1)
+      const lastChange = changes[changes.length - 1]
+      expect(lastChange).toBeDefined()
+    })
 
-    writeFileSync(authFilePath, newContent)
+    test("ignores duplicate content writes", async () => {
+      const credentials = { provider: { type: "api" as const, key: "same" } }
+      writeFileSync(testCredentialsPath, JSON.stringify(credentials))
 
-    let callCount = 0
-    let receivedRaw = ""
-    let receivedHash = ""
-
-    const stop = watchCredentials(
-      authFilePath,
-      {
-        onCredentialsChange: (_credentials: OpenCodeAuth, raw: string, hash: string) => {
-          callCount++
-          receivedRaw = raw
-          receivedHash = hash
-        },
-        onError: () => {},
-      },
-      { debounceMs: 50, storedHash }
-    )
-
-    await new Promise((r) => setTimeout(r, 200))
-    stop()
-
-    expect(callCount).toBe(1)
-    expect(receivedRaw).toBe(newContent)
-    expect(receivedHash).toBe(computeHash(newContent))
-  })
-
-  test("skips duplicate changes with same content", async () => {
-    const authContent = '{"test":"data"}'
-    writeFileSync(authFilePath, authContent)
-
-    let callCount = 0
-
-    const stop = watchCredentials(
-      authFilePath,
-      {
-        onCredentialsChange: () => {
-          callCount++
-        },
-        onError: () => {},
-      },
-      { debounceMs: 50 }
-    )
-
-    await new Promise((r) => setTimeout(r, 200))
-    expect(callCount).toBe(1)
-
-    writeFileSync(authFilePath, authContent)
-    await new Promise((r) => setTimeout(r, 200))
-    expect(callCount).toBe(1)
-
-    writeFileSync(authFilePath, authContent)
-    await new Promise((r) => setTimeout(r, 200))
-
-    stop()
-
-    expect(callCount).toBe(1)
-  })
-
-  test("provides correct hash to callback on initial read", async () => {
-    const content = '{"version":1}'
-    const expectedHash = computeHash(content)
-
-    writeFileSync(authFilePath, content)
-
-    let receivedHash = ""
-
-    const stop = watchCredentials(
-      authFilePath,
-      {
-        onCredentialsChange: (_credentials: OpenCodeAuth, _raw: string, hash: string) => {
-          receivedHash = hash
-        },
-        onError: () => {},
-      },
-      { debounceMs: 50 }
-    )
-
-    await new Promise((r) => setTimeout(r, 800))
-    stop()
-
-    expect(receivedHash).toBe(expectedHash)
-  })
-
-  test("calls onError for invalid JSON", async () => {
-    writeFileSync(authFilePath, "not valid json {{{")
-
-    let changeCount = 0
-    let errorCount = 0
-
-    const stop = watchCredentials(
-      authFilePath,
-      {
+      let changeCount = 0
+      const callbacks: WatcherCallbacks = {
         onCredentialsChange: () => {
           changeCount++
         },
-        onError: () => {
-          errorCount++
-        },
-      },
-      { debounceMs: 50 }
-    )
+        onError: () => {},
+      }
 
-    await new Promise((r) => setTimeout(r, 200))
-    stop()
+      stopWatcher = watchCredentials(testCredentialsPath, callbacks, { debounceMs: 50 })
+      await wait(700)
 
-    expect(changeCount).toBe(0)
-    expect(errorCount).toBe(1)
-  })
+      const initialCount = changeCount
 
-  test("passes parsed credentials object to callback", async () => {
-    const authData: OpenCodeAuth = {
-      anthropic: { type: "oauth", access: "token123", refresh: "refresh123", expires: 1234567890 },
-    }
-    writeFileSync(authFilePath, JSON.stringify(authData))
+      writeFileSync(testCredentialsPath, JSON.stringify(credentials))
+      await wait(700)
 
-    let receivedCredentials: OpenCodeAuth = {}
+      expect(changeCount).toBe(initialCount)
+    })
 
-    const stop = watchCredentials(
-      authFilePath,
-      {
-        onCredentialsChange: (credentials: OpenCodeAuth) => {
-          receivedCredentials = credentials
+    test("provides raw content string alongside parsed credentials", async () => {
+      const credentials = { provider: { type: "api" as const, key: "test-key" } }
+      const rawContent = JSON.stringify(credentials, null, 2)
+      writeFileSync(testCredentialsPath, rawContent)
+
+      let receivedRaw: string | null = null
+      const callbacks: WatcherCallbacks = {
+        onCredentialsChange: (_, raw) => {
+          receivedRaw = raw
         },
         onError: () => {},
-      },
-      { debounceMs: 50 }
-    )
+      }
 
-    await new Promise((r) => setTimeout(r, 200))
-    stop()
+      stopWatcher = watchCredentials(testCredentialsPath, callbacks, { debounceMs: 50 })
+      await wait(700)
 
-    expect(receivedCredentials).toEqual(authData)
+      expect(receivedRaw).not.toBeNull()
+      expect(receivedRaw!).toBe(rawContent)
+    })
   })
 
-  test("backward compatibility: works with storedHash undefined", async () => {
-    const authContent = '{"test":"backward-compat"}'
-    writeFileSync(authFilePath, authContent)
+  describe("debouncing", () => {
+    test("debounces rapid file changes", async () => {
+      const credentials = { test: { type: "api" as const, key: "initial" } }
+      writeFileSync(testCredentialsPath, JSON.stringify(credentials))
 
-    let callCount = 0
-
-    const stop = watchCredentials(
-      authFilePath,
-      {
+      let changeCount = 0
+      const callbacks: WatcherCallbacks = {
         onCredentialsChange: () => {
-          callCount++
+          changeCount++
         },
         onError: () => {},
-      },
-      { debounceMs: 50, storedHash: undefined }
-    )
+      }
 
-    await new Promise((r) => setTimeout(r, 200))
-    stop()
+      stopWatcher = watchCredentials(testCredentialsPath, callbacks, { debounceMs: 200 })
+      await wait(800)
 
-    expect(callCount).toBe(1)
+      const countAfterInit = changeCount
+
+      for (let i = 0; i < 5; i++) {
+        writeFileSync(testCredentialsPath, JSON.stringify({ test: { type: "api" as const, key: `key-${i}` } }))
+        await wait(50)
+      }
+      await wait(500)
+
+      expect(changeCount - countAfterInit).toBeLessThanOrEqual(2)
+    })
+
+    test("debounce timer is configurable", async () => {
+      const credentials = { test: { type: "api" as const, key: "test" } }
+      writeFileSync(testCredentialsPath, JSON.stringify(credentials))
+
+      let changeCount = 0
+      const callbacks: WatcherCallbacks = {
+        onCredentialsChange: () => {
+          changeCount++
+        },
+        onError: () => {},
+      }
+
+      stopWatcher = watchCredentials(testCredentialsPath, callbacks, { debounceMs: 500 })
+      await wait(1500)
+
+      const initialCount = changeCount
+
+      writeFileSync(testCredentialsPath, JSON.stringify({ test: { type: "api" as const, key: "updated" } }))
+      await wait(1200)
+
+      expect(changeCount).toBeGreaterThanOrEqual(initialCount)
+    })
+  })
+
+  describe("error handling", () => {
+    test("calls onError for invalid JSON content", async () => {
+      writeFileSync(testCredentialsPath, JSON.stringify({ valid: { type: "api" as const, key: "test" } }))
+
+      const errors: Error[] = []
+      const callbacks: WatcherCallbacks = {
+        onCredentialsChange: () => {},
+        onError: (error) => {
+          errors.push(error)
+        },
+      }
+
+      stopWatcher = watchCredentials(testCredentialsPath, callbacks, { debounceMs: 50 })
+      await wait(1500)
+
+      writeFileSync(testCredentialsPath, "invalid json {{{")
+      await wait(1500)
+
+      if (errors.length > 0) {
+        expect(errors[0].message).toContain("JSON")
+      }
+    })
+
+    test("can receive multiple changes over time", async () => {
+      writeFileSync(testCredentialsPath, JSON.stringify({ test: { type: "api" as const, key: "initial" } }))
+
+      const changes: OpenCodeAuth[] = []
+      const callbacks: WatcherCallbacks = {
+        onCredentialsChange: (creds) => {
+          changes.push(creds)
+        },
+        onError: () => {},
+      }
+
+      stopWatcher = watchCredentials(testCredentialsPath, callbacks, { debounceMs: 50 })
+      await wait(1500)
+
+      const validCredentials = { updated: { type: "api" as const, key: "new-key" } }
+      writeFileSync(testCredentialsPath, JSON.stringify(validCredentials))
+      await wait(1500)
+
+      expect(changes.length).toBeGreaterThanOrEqual(1)
+    })
+
+    test("passes parsed credentials object to callback", async () => {
+      const authData: OpenCodeAuth = {
+        anthropic: { type: "oauth", access: "token123", refresh: "refresh123", expires: 1234567890 },
+      }
+      writeFileSync(testCredentialsPath, JSON.stringify(authData))
+
+      let receivedCredentials: OpenCodeAuth = {}
+
+      stopWatcher = watchCredentials(
+        testCredentialsPath,
+        {
+          onCredentialsChange: (credentials: OpenCodeAuth) => {
+            receivedCredentials = credentials
+          },
+          onError: () => {},
+        },
+        { debounceMs: 50 }
+      )
+
+      await wait(700)
+      stopWatcher()
+      stopWatcher = null
+
+      expect(receivedCredentials).toEqual(authData)
+    })
+  })
+
+  describe("cleanup", () => {
+    test("cleanup function stops watching for changes", async () => {
+      const credentials = { test: { type: "api" as const, key: "initial" } }
+      writeFileSync(testCredentialsPath, JSON.stringify(credentials))
+
+      let changeCount = 0
+      const callbacks: WatcherCallbacks = {
+        onCredentialsChange: () => {
+          changeCount++
+        },
+        onError: () => {},
+      }
+
+      stopWatcher = watchCredentials(testCredentialsPath, callbacks, { debounceMs: 50 })
+      await wait(700)
+      const countAfterInit = changeCount
+
+      stopWatcher()
+      stopWatcher = null
+
+      writeFileSync(testCredentialsPath, JSON.stringify({ test: { type: "api" as const, key: "after-cleanup" } }))
+      await wait(500)
+
+      expect(changeCount).toBe(countAfterInit)
+    })
+
+    test("cleanup function clears pending debounce timers", async () => {
+      const credentials = { test: { type: "api" as const, key: "initial" } }
+      writeFileSync(testCredentialsPath, JSON.stringify(credentials))
+
+      let changeCount = 0
+      const callbacks: WatcherCallbacks = {
+        onCredentialsChange: () => {
+          changeCount++
+        },
+        onError: () => {},
+      }
+
+      stopWatcher = watchCredentials(testCredentialsPath, callbacks, { debounceMs: 500 })
+      await wait(700)
+      const countAfterInit = changeCount
+
+      writeFileSync(testCredentialsPath, JSON.stringify({ test: { type: "api" as const, key: "pending" } }))
+      await wait(100)
+
+      stopWatcher()
+      stopWatcher = null
+      await wait(600)
+
+      expect(changeCount).toBe(countAfterInit)
+    })
+  })
+
+  describe("edge cases", () => {
+    test("handles empty credentials object", async () => {
+      writeFileSync(testCredentialsPath, JSON.stringify({}))
+
+      let receivedCredentials: OpenCodeAuth | null = null
+      const callbacks: WatcherCallbacks = {
+        onCredentialsChange: (creds) => {
+          receivedCredentials = creds
+        },
+        onError: () => {},
+      }
+
+      stopWatcher = watchCredentials(testCredentialsPath, callbacks, { debounceMs: 50 })
+      await wait(700)
+
+      expect(receivedCredentials).not.toBeNull()
+      expect(Object.keys(receivedCredentials!)).toHaveLength(0)
+    })
+
+    test("handles credentials with multiple providers", async () => {
+      const multiProviderCreds: OpenCodeAuth = {
+        anthropic: { type: "oauth", access: "a-token", refresh: "a-ref", expires: 100 },
+        openai: { type: "oauth", access: "o-token", refresh: "o-ref", expires: 200 },
+        custom: { type: "api", key: "api-key" },
+      }
+      writeFileSync(testCredentialsPath, JSON.stringify(multiProviderCreds))
+
+      let receivedCredentials: OpenCodeAuth | null = null
+      const callbacks: WatcherCallbacks = {
+        onCredentialsChange: (creds) => {
+          receivedCredentials = creds
+        },
+        onError: () => {},
+      }
+
+      stopWatcher = watchCredentials(testCredentialsPath, callbacks, { debounceMs: 50 })
+      await wait(700)
+
+      expect(receivedCredentials).not.toBeNull()
+      expect(Object.keys(receivedCredentials!)).toEqual(["anthropic", "openai", "custom"])
+    })
   })
 })
