@@ -104,6 +104,26 @@ The auth file contains credentials for all configured OpenCode providers:
 - `google` - Gemini (OAuth)
 - API key providers
 
+## Development
+
+### Running Tests
+
+```bash
+bun test
+```
+
+### Type Checking
+
+```bash
+bun run type-check
+```
+
+### Building
+
+```bash
+bun run build
+```
+
 ## License
 
 MIT
