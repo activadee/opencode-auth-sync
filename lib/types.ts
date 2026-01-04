@@ -4,6 +4,7 @@ export interface AuthSyncConfig {
   secretName: string
   repositories: string[]
   debounceMs?: number
+  authFileHashes?: Record<string, string>
 }
 
 export interface OAuthEntry {

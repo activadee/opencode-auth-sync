@@ -1,8 +1,8 @@
 import type { Plugin, PluginInput } from "@opencode-ai/plugin"
-import { loadConfig, expandPath } from "./lib/config"
+import { loadConfig, expandPath, getConfigPath, saveConfig } from "./lib/config"
 import { watchCredentials } from "./lib/watcher"
 import { syncToRepositories, verifyGhAuth } from "./lib/sync"
-import type { OpenCodeAuth } from "./lib/types"
+import type { AuthSyncConfig, OpenCodeAuth } from "./lib/types"
 
 const PLUGIN_NAME = "opencode-auth-sync"
 
@@ -50,26 +50,50 @@ export const OpenCodeAuthSyncPlugin: Plugin = async ({ $, client, directory }: P
   }
 
   const credentialsPath = expandPath(config.credentialsPath)
-  let isFirstSync = true
+  const configPath = getConfigPath(directory)
+  let currentHashes: Record<string, string> = { ...config.authFileHashes }
   let stopWatching: (() => void) | null = null
 
-  const handleCredentialsChange = async (_credentials: OpenCodeAuth, raw: string) => {
-    const action = isFirstSync ? "Initial sync" : "Syncing"
-    showToast(`${action} to ${config.repositories.length} repo(s)...`, "info", 2000)
+  const persistHashes = async (hashes: Record<string, string>) => {
+    if (!configPath) return
 
-    const summary = await syncToRepositories($, config.repositories, config.secretName, raw)
+    try {
+      currentHashes = { ...hashes }
+      const updatedConfig: AuthSyncConfig = { ...config, authFileHashes: currentHashes }
+      await saveConfig(configPath, updatedConfig)
+    } catch {
+      showToast("Could not save config, sync may repeat on restart", "warning", 3000)
+    }
+  }
 
-    if (summary.failed === 0) {
-      showToast(`Synced to ${summary.successful} repo(s)`, "success", 3000)
-    } else {
-      const failedRepos = summary.results
-        .filter((r) => !r.success)
-        .map((r) => r.repository)
-        .join(", ")
-      showToast(`${summary.successful} synced, ${summary.failed} failed: ${failedRepos}`, "warning", 5000)
+  const handleCredentialsChange = async (_credentials: OpenCodeAuth, raw: string, hash: string) => {
+    const reposNeedingSync = config.repositories.filter(
+      (repo) => currentHashes[repo] !== hash
+    )
+
+    if (reposNeedingSync.length === 0) {
+      return
     }
 
-    isFirstSync = false
+    const isInitialSync = Object.keys(currentHashes).length === 0
+    const action = isInitialSync ? "Initial sync" : "Syncing"
+    showToast(`${action} to ${reposNeedingSync.length} repo(s)...`, "info", 2000)
+
+    const summary = await syncToRepositories($, reposNeedingSync, config.secretName, raw)
+
+    const updatedHashes = { ...currentHashes }
+    for (const result of summary.results) {
+      if (result.success) {
+        updatedHashes[result.repository] = hash
+      } else {
+        showToast(`Failed to sync to ${result.repository}: ${result.error}`, "error", 5000)
+      }
+    }
+
+    if (summary.successful > 0) {
+      await persistHashes(updatedHashes)
+      showToast(`Synced to ${summary.successful} repo(s)`, "success", 3000)
+    }
   }
 
   const handleError = async (error: Error) => {
@@ -82,7 +106,9 @@ export const OpenCodeAuthSyncPlugin: Plugin = async ({ $, client, directory }: P
       onCredentialsChange: handleCredentialsChange,
       onError: handleError,
     },
-    config.debounceMs
+    {
+      debounceMs: config.debounceMs,
+    }
   )
 
   return {}

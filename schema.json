@@ -36,6 +36,13 @@
       "default": 1000,
       "minimum": 100,
       "description": "Debounce delay in milliseconds for file changes"
+    },
+    "authFileHashes": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "string"
+      },
+      "description": "Per-repository SHA-256 hashes of last synced auth.json (managed by plugin)"
     }
   },
   "required": ["repositories"],

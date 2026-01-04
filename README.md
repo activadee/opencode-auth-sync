@@ -54,6 +54,7 @@ Create `~/.config/opencode/opencode-auth-sync.json`:
 | `secretName` | string | `OPENCODE_AUTH` | GitHub secret name |
 | `repositories` | string[] | `[]` | Repositories to sync (`owner/repo` format) |
 | `debounceMs` | number | `1000` | Debounce delay for file changes |
+| `authFileHashes` | object | (auto-managed) | Per-repository SHA-256 hashes of last synced auth.json (managed by plugin) |
 
 ## Prerequisites
 
@@ -64,8 +65,11 @@ Create `~/.config/opencode/opencode-auth-sync.json`:
 
 1. Plugin watches `~/.local/share/opencode/auth.json` for changes
 2. When tokens refresh, the file updates
-3. Plugin syncs the entire auth file to configured repositories via `gh secret set`
-4. Toast notifications show sync status
+3. Plugin computes a SHA-256 hash of the file content and compares it against the stored hash
+4. If the hash differs (content actually changed), syncs to configured repositories via `gh secret set`
+5. Toast notifications show sync status
+
+The hash-based change detection reduces unnecessary GitHub API calls when file metadata changes but content remains the same.
 
 ## Using the Secret in GitHub Actions
 
