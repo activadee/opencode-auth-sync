@@ -7,7 +7,7 @@ import type { AuthSyncConfig } from "./types"
 export const DEFAULT_CONFIG: AuthSyncConfig = {
   enabled: true,
   credentialsPath: "~/.local/share/opencode/auth.json",
-  secretName: "OPENCODE_AUTH_JSON",
+  secretName: "OPENCODE_AUTH",
   repositories: [],
   debounceMs: 1000,
 }

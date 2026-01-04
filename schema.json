@@ -19,7 +19,7 @@
     },
     "secretName": {
       "type": "string",
-      "default": "OPENCODE_AUTH_JSON",
+      "default": "OPENCODE_AUTH",
       "description": "Name of the GitHub secret to create/update"
     },
     "repositories": {

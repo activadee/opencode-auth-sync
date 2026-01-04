@@ -145,7 +145,7 @@ async function main() {
     process.exit(0)
   }
 
-  const existingSecretName = existingConfig.secretName || "OPENCODE_AUTH_JSON"
+  const existingSecretName = existingConfig.secretName || "OPENCODE_AUTH"
   const secretName = await p.text({
     message: "GitHub secret name",
     placeholder: existingSecretName,
@@ -201,7 +201,7 @@ async function main() {
   p.note(
     [
       `${color.dim("Plugin config:")} ~/.config/opencode/opencode-auth-sync.json`,
-      `${color.dim("Secret name:")}   ${secretName || "OPENCODE_AUTH_JSON"}`,
+      `${color.dim("Secret name:")}   ${secretName || "OPENCODE_AUTH"}`,
       `${color.dim("Repositories:")}  ${(selectedRepos as string[]).length} selected`,
       "",
       ...((selectedRepos as string[]).map((r) => `  ${color.green("✓")} ${r}`)),

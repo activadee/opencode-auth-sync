@@ -213,7 +213,7 @@ describe("config merge integration", () => {
       enabled: true,
       debounceMs: 10000,
       credentialsPath: "~/.local/share/opencode/auth.json",
-      secretName: "OPENCODE_AUTH_JSON",
+      secretName: "OPENCODE_AUTH",
       repositories: ["org/repo1", "org/repo2"],
     }
     writeFileSync(testConfigPath, JSON.stringify(originalConfig))
@@ -221,7 +221,7 @@ describe("config merge integration", () => {
     const loaded = loadPluginConfigSync(testConfigPath)
     const reinstallUpdates = {
       repositories: ["org/repo1", "org/repo3"],
-      secretName: "OPENCODE_AUTH_JSON",
+      secretName: "OPENCODE_AUTH",
     }
     const merged = mergeConfig(loaded, reinstallUpdates)
     
@@ -234,7 +234,7 @@ describe("DEFAULT_CONFIG", () => {
   test("has expected default values", () => {
     expect(DEFAULT_CONFIG.enabled).toBe(true)
     expect(DEFAULT_CONFIG.credentialsPath).toBe("~/.local/share/opencode/auth.json")
-    expect(DEFAULT_CONFIG.secretName).toBe("OPENCODE_AUTH_JSON")
+    expect(DEFAULT_CONFIG.secretName).toBe("OPENCODE_AUTH")
     expect(DEFAULT_CONFIG.repositories).toEqual([])
     expect(DEFAULT_CONFIG.debounceMs).toBe(1000)
   })
