@@ -1,15 +1,38 @@
 import { readFile } from "fs/promises"
-import { existsSync } from "fs"
+import { existsSync, readFileSync } from "fs"
 import { homedir } from "os"
 import { join } from "path"
 import type { AuthSyncConfig } from "./types"
 
-const DEFAULT_CONFIG: AuthSyncConfig = {
+export const DEFAULT_CONFIG: AuthSyncConfig = {
   enabled: true,
   credentialsPath: "~/.local/share/opencode/auth.json",
   secretName: "OPENCODE_AUTH_JSON",
   repositories: [],
   debounceMs: 1000,
+}
+
+export function loadPluginConfigSync(configPath: string): Partial<AuthSyncConfig> {
+  if (!existsSync(configPath)) {
+    return {}
+  }
+  try {
+    const content = readFileSync(configPath, "utf-8")
+    return JSON.parse(content) as Partial<AuthSyncConfig>
+  } catch {
+    return {}
+  }
+}
+
+export function mergeConfig(
+  existing: Partial<AuthSyncConfig>,
+  updates: Partial<AuthSyncConfig>
+): AuthSyncConfig {
+  return {
+    ...DEFAULT_CONFIG,
+    ...existing,
+    ...updates,
+  }
 }
 
 export async function loadConfig(projectDir?: string): Promise<AuthSyncConfig> {
