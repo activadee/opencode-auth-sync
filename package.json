@@ -1,0 +1,52 @@
+{
+  "name": "@activade/opencode-auth-sync",
+  "version": "0.0.0",
+  "description": "OpenCode plugin to sync auth credentials to GitHub repositories as secrets",
+  "main": "index.ts",
+  "type": "module",
+  "bin": {
+    "opencode-auth-sync": "cli.ts"
+  },
+  "files": [
+    "index.ts",
+    "cli.ts",
+    "lib",
+    "schema.json"
+  ],
+  "keywords": [
+    "opencode",
+    "plugin",
+    "claude",
+    "anthropic",
+    "auth",
+    "github",
+    "sync",
+    "secrets",
+    "credentials"
+  ],
+  "author": "activadee",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/activadee/opencode-auth-sync.git"
+  },
+  "homepage": "https://github.com/activadee/opencode-auth-sync#readme",
+  "bugs": {
+    "url": "https://github.com/activadee/opencode-auth-sync/issues"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "dependencies": {
+    "@clack/prompts": "^0.9.1",
+    "chokidar": "^3.6.0",
+    "picocolors": "^1.1.1"
+  },
+  "peerDependencies": {
+    "@opencode-ai/plugin": "*",
+    "@opencode-ai/sdk": "*"
+  },
+  "devDependencies": {
+    "@types/node": "^25.0.3"
+  }
+}

@@ -1,0 +1,11 @@
+{
+  "$schema": "https://raw.githubusercontent.com/activadee/opencode-auth-sync/main/schema.json",
+  "enabled": true,
+  "credentialsPath": "~/.local/share/opencode/auth.json",
+  "secretName": "OPENCODE_AUTH_JSON",
+  "repositories": [
+    "your-username/repo1",
+    "your-org/private-repo"
+  ],
+  "debounceMs": 1000
+}

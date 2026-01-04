@@ -1,0 +1,28 @@
+name: Doc Sync
+
+on:
+  pull_request:
+    types: [opened, synchronize]
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.head_ref }}
+          fetch-depth: 0
+
+      - uses: actions/cache/restore@v4
+        with:
+          path: ~/.local/share/opencode/auth.json
+          key: opencode-auth-
+          restore-keys: opencode-auth-
+
+      - uses: activadee/open-workflows/actions/doc-sync@main
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          OPENCODE_AUTH: ${{ secrets.OPENCODE_AUTH }}

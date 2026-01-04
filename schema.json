@@ -1,0 +1,43 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://raw.githubusercontent.com/activadee/opencode-auth-sync/main/schema.json",
+  "title": "opencode-auth-sync configuration",
+  "type": "object",
+  "properties": {
+    "$schema": {
+      "type": "string"
+    },
+    "enabled": {
+      "type": "boolean",
+      "default": true,
+      "description": "Enable or disable the plugin"
+    },
+    "credentialsPath": {
+      "type": "string",
+      "default": "~/.local/share/opencode/auth.json",
+      "description": "Path to OpenCode auth file (supports ~ expansion)"
+    },
+    "secretName": {
+      "type": "string",
+      "default": "OPENCODE_AUTH_JSON",
+      "description": "Name of the GitHub secret to create/update"
+    },
+    "repositories": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "pattern": "^[\\w.-]+/[\\w.-]+$"
+      },
+      "default": [],
+      "description": "List of repositories in 'owner/repo' format"
+    },
+    "debounceMs": {
+      "type": "integer",
+      "default": 1000,
+      "minimum": 100,
+      "description": "Debounce delay in milliseconds for file changes"
+    }
+  },
+  "required": ["repositories"],
+  "additionalProperties": false
+}
