@@ -54,7 +54,7 @@ Create `~/.config/opencode/opencode-auth-sync.json`:
 | `secretName` | string | `OPENCODE_AUTH_JSON` | GitHub secret name |
 | `repositories` | string[] | `[]` | Repositories to sync (`owner/repo` format) |
 | `debounceMs` | number | `1000` | Debounce delay for file changes |
-| `authFileHash` | string | (auto-managed) | SHA-256 hash of last synced auth.json (managed by plugin) |
+| `authFileHashes` | object | (auto-managed) | Per-repository SHA-256 hashes of last synced auth.json (managed by plugin) |
 
 ## Prerequisites
 
