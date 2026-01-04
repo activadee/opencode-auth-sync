@@ -1,8 +1,8 @@
 import type { Plugin, PluginInput } from "@opencode-ai/plugin"
-import { loadConfig, expandPath } from "./lib/config"
+import { loadConfig, expandPath, getConfigPath, saveConfig } from "./lib/config"
 import { watchCredentials } from "./lib/watcher"
 import { syncToRepositories, verifyGhAuth } from "./lib/sync"
-import type { OpenCodeAuth } from "./lib/types"
+import type { AuthSyncConfig, OpenCodeAuth } from "./lib/types"
 
 const PLUGIN_NAME = "opencode-auth-sync"
 
@@ -50,10 +50,23 @@ export const OpenCodeAuthSyncPlugin: Plugin = async ({ $, client, directory }: P
   }
 
   const credentialsPath = expandPath(config.credentialsPath)
+  const configPath = getConfigPath(directory)
   let isFirstSync = true
+  let currentConfig: AuthSyncConfig = { ...config }
   let stopWatching: (() => void) | null = null
 
-  const handleCredentialsChange = async (_credentials: OpenCodeAuth, raw: string) => {
+  const persistHash = async (hash: string) => {
+    if (!configPath) return
+
+    try {
+      currentConfig = { ...currentConfig, authFileHash: hash }
+      await saveConfig(configPath, currentConfig)
+    } catch {
+      showToast("Could not save config hash, sync will work but may repeat on restart", "warning", 3000)
+    }
+  }
+
+  const handleCredentialsChange = async (_credentials: OpenCodeAuth, raw: string, hash: string) => {
     const action = isFirstSync ? "Initial sync" : "Syncing"
     showToast(`${action} to ${config.repositories.length} repo(s)...`, "info", 2000)
 
@@ -61,6 +74,7 @@ export const OpenCodeAuthSyncPlugin: Plugin = async ({ $, client, directory }: P
 
     if (summary.failed === 0) {
       showToast(`Synced to ${summary.successful} repo(s)`, "success", 3000)
+      await persistHash(hash)
     } else {
       const failedRepos = summary.results
         .filter((r) => !r.success)
@@ -82,7 +96,10 @@ export const OpenCodeAuthSyncPlugin: Plugin = async ({ $, client, directory }: P
       onCredentialsChange: handleCredentialsChange,
       onError: handleError,
     },
-    config.debounceMs
+    {
+      debounceMs: config.debounceMs,
+      storedHash: config.authFileHash,
+    }
   )
 
   return {}

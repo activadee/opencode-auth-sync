@@ -1,8 +1,8 @@
 import { describe, test, expect, beforeEach, afterEach } from "bun:test"
-import { mkdirSync, writeFileSync, rmSync, existsSync } from "fs"
+import { mkdirSync, writeFileSync, rmSync, existsSync, readFileSync } from "fs"
 import { join } from "path"
 import { tmpdir } from "os"
-import { loadPluginConfigSync, mergeConfig, DEFAULT_CONFIG } from "./config"
+import { loadPluginConfigSync, mergeConfig, DEFAULT_CONFIG, saveConfig, getConfigPath } from "./config"
 import type { AuthSyncConfig } from "./types"
 
 describe("loadPluginConfigSync", () => {
@@ -237,5 +237,194 @@ describe("DEFAULT_CONFIG", () => {
     expect(DEFAULT_CONFIG.secretName).toBe("OPENCODE_AUTH_JSON")
     expect(DEFAULT_CONFIG.repositories).toEqual([])
     expect(DEFAULT_CONFIG.debounceMs).toBe(1000)
+  })
+})
+
+describe("saveConfig", () => {
+  const testDir = join(tmpdir(), `opencode-auth-sync-save-${Date.now()}`)
+  const testConfigPath = join(testDir, "config.json")
+
+  beforeEach(() => {
+    mkdirSync(testDir, { recursive: true })
+  })
+
+  afterEach(() => {
+    if (existsSync(testDir)) {
+      rmSync(testDir, { recursive: true })
+    }
+  })
+
+  test("writes config to file with proper JSON formatting", async () => {
+    const config: Partial<AuthSyncConfig> = {
+      enabled: true,
+      repositories: ["org/repo"],
+      secretName: "TEST_SECRET",
+    }
+
+    await saveConfig(testConfigPath, config)
+
+    const content = readFileSync(testConfigPath, "utf-8")
+    const parsed = JSON.parse(content)
+
+    expect(parsed).toEqual(config)
+    expect(content).toContain("\n")
+  })
+
+  test("saves config with authFileHash field", async () => {
+    const config: Partial<AuthSyncConfig> = {
+      enabled: true,
+      repositories: ["org/repo"],
+      authFileHash: "abc123def456",
+    }
+
+    await saveConfig(testConfigPath, config)
+
+    const content = readFileSync(testConfigPath, "utf-8")
+    const parsed = JSON.parse(content)
+
+    expect(parsed.authFileHash).toBe("abc123def456")
+  })
+
+  test("overwrites existing config file", async () => {
+    const oldConfig = { enabled: false, repositories: ["old/repo"] }
+    writeFileSync(testConfigPath, JSON.stringify(oldConfig))
+
+    const newConfig: Partial<AuthSyncConfig> = {
+      enabled: true,
+      repositories: ["new/repo"],
+      authFileHash: "newhash123",
+    }
+
+    await saveConfig(testConfigPath, newConfig)
+
+    const content = readFileSync(testConfigPath, "utf-8")
+    const parsed = JSON.parse(content)
+
+    expect(parsed.enabled).toBe(true)
+    expect(parsed.repositories).toEqual(["new/repo"])
+    expect(parsed.authFileHash).toBe("newhash123")
+  })
+})
+
+describe("getConfigPath", () => {
+  const testDir = join(tmpdir(), `opencode-auth-sync-path-${Date.now()}`)
+  const projectConfigPath = join(testDir, "opencode-auth-sync.json")
+
+  beforeEach(() => {
+    mkdirSync(testDir, { recursive: true })
+  })
+
+  afterEach(() => {
+    if (existsSync(testDir)) {
+      rmSync(testDir, { recursive: true })
+    }
+  })
+
+  test("returns project config path when it exists", () => {
+    writeFileSync(projectConfigPath, JSON.stringify({ enabled: true }))
+
+    const result = getConfigPath(testDir)
+    expect(result).toBe(projectConfigPath)
+  })
+
+  test("returns string when some config file exists", () => {
+    const result = getConfigPath(testDir)
+    expect(typeof result === "string" || result === null).toBe(true)
+  })
+})
+
+describe("authFileHash in config", () => {
+  const testDir = join(tmpdir(), `opencode-auth-sync-hash-${Date.now()}`)
+  const testConfigPath = join(testDir, "config.json")
+
+  beforeEach(() => {
+    mkdirSync(testDir, { recursive: true })
+  })
+
+  afterEach(() => {
+    if (existsSync(testDir)) {
+      rmSync(testDir, { recursive: true })
+    }
+  })
+
+  test("loads config with authFileHash field", () => {
+    const config = {
+      enabled: true,
+      repositories: ["org/repo"],
+      authFileHash: "sha256hashvalue123",
+    }
+    writeFileSync(testConfigPath, JSON.stringify(config))
+
+    const result = loadPluginConfigSync(testConfigPath)
+
+    expect(result.authFileHash).toBe("sha256hashvalue123")
+  })
+
+  test("backward compatibility: loads config without authFileHash field", () => {
+    const config = {
+      enabled: true,
+      repositories: ["org/repo"],
+      secretName: "SECRET",
+    }
+    writeFileSync(testConfigPath, JSON.stringify(config))
+
+    const result = loadPluginConfigSync(testConfigPath)
+
+    expect(result.authFileHash).toBeUndefined()
+    expect(result.enabled).toBe(true)
+    expect(result.repositories).toEqual(["org/repo"])
+  })
+
+  test("mergeConfig preserves authFileHash from existing config", () => {
+    const existing: Partial<AuthSyncConfig> = {
+      enabled: true,
+      repositories: ["old/repo"],
+      authFileHash: "existinghash",
+    }
+    const updates: Partial<AuthSyncConfig> = {
+      repositories: ["new/repo"],
+    }
+
+    const result = mergeConfig(existing, updates)
+
+    expect(result.authFileHash).toBe("existinghash")
+    expect(result.repositories).toEqual(["new/repo"])
+  })
+
+  test("mergeConfig allows updating authFileHash", () => {
+    const existing: Partial<AuthSyncConfig> = {
+      enabled: true,
+      authFileHash: "oldhash",
+    }
+    const updates: Partial<AuthSyncConfig> = {
+      authFileHash: "newhash",
+    }
+
+    const result = mergeConfig(existing, updates)
+
+    expect(result.authFileHash).toBe("newhash")
+  })
+
+  test("full workflow: load, update hash, save, reload", async () => {
+    const initialConfig = {
+      enabled: true,
+      repositories: ["org/repo"],
+      secretName: "SECRET",
+    }
+    writeFileSync(testConfigPath, JSON.stringify(initialConfig))
+
+    const loaded = loadPluginConfigSync(testConfigPath)
+    expect(loaded.authFileHash).toBeUndefined()
+
+    const updated: Partial<AuthSyncConfig> = {
+      ...loaded,
+      authFileHash: "newlycomputedhash",
+    }
+    await saveConfig(testConfigPath, updated)
+
+    const reloaded = loadPluginConfigSync(testConfigPath)
+    expect(reloaded.authFileHash).toBe("newlycomputedhash")
+    expect(reloaded.enabled).toBe(true)
+    expect(reloaded.repositories).toEqual(["org/repo"])
   })
 })

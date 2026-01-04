@@ -1,4 +1,4 @@
-import { readFile } from "fs/promises"
+import { readFile, writeFile } from "fs/promises"
 import { existsSync, readFileSync } from "fs"
 import { homedir } from "os"
 import { join } from "path"
@@ -61,4 +61,27 @@ export function expandPath(path: string): string {
     return join(homedir(), path.slice(1))
   }
   return path
+}
+
+export function getConfigPath(projectDir?: string): string | null {
+  const locations = [
+    projectDir && join(projectDir, "opencode-auth-sync.json"),
+    join(homedir(), ".config", "opencode", "opencode-auth-sync.json"),
+  ].filter(Boolean) as string[]
+
+  for (const configPath of locations) {
+    if (existsSync(configPath)) {
+      return configPath
+    }
+  }
+
+  return null
+}
+
+export async function saveConfig(
+  configPath: string,
+  config: Partial<AuthSyncConfig>
+): Promise<void> {
+  const content = JSON.stringify(config, null, 2)
+  await writeFile(configPath, content, "utf-8")
 }
