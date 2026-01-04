@@ -74,13 +74,16 @@ export const OpenCodeAuthSyncPlugin: Plugin = async ({ $, client, directory }: P
 
     if (summary.failed === 0) {
       showToast(`Synced to ${summary.successful} repo(s)`, "success", 3000)
-      await persistHash(hash)
     } else {
       const failedRepos = summary.results
         .filter((r) => !r.success)
         .map((r) => r.repository)
         .join(", ")
       showToast(`${summary.successful} synced, ${summary.failed} failed: ${failedRepos}`, "warning", 5000)
+    }
+
+    if (summary.successful > 0) {
+      await persistHash(hash)
     }
 
     isFirstSync = false
