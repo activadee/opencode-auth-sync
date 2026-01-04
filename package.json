@@ -1,6 +1,6 @@
 {
   "name": "@activade/opencode-auth-sync",
-  "version": "0.0.1",
+  "version": "0.0.2",
   "description": "OpenCode plugin to sync auth credentials to GitHub repositories as secrets",
   "main": "index.ts",
   "type": "module",
