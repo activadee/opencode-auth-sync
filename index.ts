@@ -51,42 +51,49 @@ export const OpenCodeAuthSyncPlugin: Plugin = async ({ $, client, directory }: P
 
   const credentialsPath = expandPath(config.credentialsPath)
   const configPath = getConfigPath(directory)
-  let isFirstSync = true
-  let currentConfig: AuthSyncConfig = { ...config }
+  let currentHashes: Record<string, string> = { ...config.authFileHashes }
   let stopWatching: (() => void) | null = null
 
-  const persistHash = async (hash: string) => {
+  const persistHashes = async (hashes: Record<string, string>) => {
     if (!configPath) return
 
     try {
-      currentConfig = { ...currentConfig, authFileHash: hash }
-      await saveConfig(configPath, currentConfig)
+      currentHashes = { ...hashes }
+      const updatedConfig: AuthSyncConfig = { ...config, authFileHashes: currentHashes }
+      await saveConfig(configPath, updatedConfig)
     } catch {
-      showToast("Could not save config hash, sync will work but may repeat on restart", "warning", 3000)
+      showToast("Could not save config, sync may repeat on restart", "warning", 3000)
     }
   }
 
   const handleCredentialsChange = async (_credentials: OpenCodeAuth, raw: string, hash: string) => {
-    const action = isFirstSync ? "Initial sync" : "Syncing"
-    showToast(`${action} to ${config.repositories.length} repo(s)...`, "info", 2000)
+    const reposNeedingSync = config.repositories.filter(
+      (repo) => currentHashes[repo] !== hash
+    )
 
-    const summary = await syncToRepositories($, config.repositories, config.secretName, raw)
+    if (reposNeedingSync.length === 0) {
+      return
+    }
 
-    if (summary.failed === 0) {
-      showToast(`Synced to ${summary.successful} repo(s)`, "success", 3000)
-    } else {
-      const failedRepos = summary.results
-        .filter((r) => !r.success)
-        .map((r) => r.repository)
-        .join(", ")
-      showToast(`${summary.successful} synced, ${summary.failed} failed: ${failedRepos}`, "warning", 5000)
+    const isInitialSync = Object.keys(currentHashes).length === 0
+    const action = isInitialSync ? "Initial sync" : "Syncing"
+    showToast(`${action} to ${reposNeedingSync.length} repo(s)...`, "info", 2000)
+
+    const summary = await syncToRepositories($, reposNeedingSync, config.secretName, raw)
+
+    const updatedHashes = { ...currentHashes }
+    for (const result of summary.results) {
+      if (result.success) {
+        updatedHashes[result.repository] = hash
+      } else {
+        showToast(`Failed to sync to ${result.repository}: ${result.error}`, "error", 5000)
+      }
     }
 
     if (summary.successful > 0) {
-      await persistHash(hash)
+      await persistHashes(updatedHashes)
+      showToast(`Synced to ${summary.successful} repo(s)`, "success", 3000)
     }
-
-    isFirstSync = false
   }
 
   const handleError = async (error: Error) => {
@@ -101,7 +108,6 @@ export const OpenCodeAuthSyncPlugin: Plugin = async ({ $, client, directory }: P
     },
     {
       debounceMs: config.debounceMs,
-      storedHash: config.authFileHash,
     }
   )
 

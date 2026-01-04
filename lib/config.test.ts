@@ -270,11 +270,11 @@ describe("saveConfig", () => {
     expect(content).toContain("\n")
   })
 
-  test("saves config with authFileHash field", async () => {
+  test("saves config with authFileHashes field", async () => {
     const config: Partial<AuthSyncConfig> = {
       enabled: true,
       repositories: ["org/repo"],
-      authFileHash: "abc123def456",
+      authFileHashes: { "org/repo": "abc123def456" },
     }
 
     await saveConfig(testConfigPath, config)
@@ -282,7 +282,7 @@ describe("saveConfig", () => {
     const content = readFileSync(testConfigPath, "utf-8")
     const parsed = JSON.parse(content)
 
-    expect(parsed.authFileHash).toBe("abc123def456")
+    expect(parsed.authFileHashes).toEqual({ "org/repo": "abc123def456" })
   })
 
   test("overwrites existing config file", async () => {
@@ -292,7 +292,7 @@ describe("saveConfig", () => {
     const newConfig: Partial<AuthSyncConfig> = {
       enabled: true,
       repositories: ["new/repo"],
-      authFileHash: "newhash123",
+      authFileHashes: { "new/repo": "newhash123" },
     }
 
     await saveConfig(testConfigPath, newConfig)
@@ -302,7 +302,7 @@ describe("saveConfig", () => {
 
     expect(parsed.enabled).toBe(true)
     expect(parsed.repositories).toEqual(["new/repo"])
-    expect(parsed.authFileHash).toBe("newhash123")
+    expect(parsed.authFileHashes).toEqual({ "new/repo": "newhash123" })
   })
 })
 
@@ -333,7 +333,7 @@ describe("getConfigPath", () => {
   })
 })
 
-describe("authFileHash in config", () => {
+describe("authFileHashes in config", () => {
   const testDir = join(tmpdir(), `opencode-auth-sync-hash-${Date.now()}`)
   const testConfigPath = join(testDir, "config.json")
 
@@ -347,20 +347,20 @@ describe("authFileHash in config", () => {
     }
   })
 
-  test("loads config with authFileHash field", () => {
+  test("loads config with authFileHashes field", () => {
     const config = {
       enabled: true,
       repositories: ["org/repo"],
-      authFileHash: "sha256hashvalue123",
+      authFileHashes: { "org/repo": "sha256hashvalue123" },
     }
     writeFileSync(testConfigPath, JSON.stringify(config))
 
     const result = loadPluginConfigSync(testConfigPath)
 
-    expect(result.authFileHash).toBe("sha256hashvalue123")
+    expect(result.authFileHashes).toEqual({ "org/repo": "sha256hashvalue123" })
   })
 
-  test("backward compatibility: loads config without authFileHash field", () => {
+  test("backward compatibility: loads config without authFileHashes field", () => {
     const config = {
       enabled: true,
       repositories: ["org/repo"],
@@ -370,16 +370,16 @@ describe("authFileHash in config", () => {
 
     const result = loadPluginConfigSync(testConfigPath)
 
-    expect(result.authFileHash).toBeUndefined()
+    expect(result.authFileHashes).toBeUndefined()
     expect(result.enabled).toBe(true)
     expect(result.repositories).toEqual(["org/repo"])
   })
 
-  test("mergeConfig preserves authFileHash from existing config", () => {
+  test("mergeConfig preserves authFileHashes from existing config", () => {
     const existing: Partial<AuthSyncConfig> = {
       enabled: true,
       repositories: ["old/repo"],
-      authFileHash: "existinghash",
+      authFileHashes: { "old/repo": "existinghash" },
     }
     const updates: Partial<AuthSyncConfig> = {
       repositories: ["new/repo"],
@@ -387,25 +387,25 @@ describe("authFileHash in config", () => {
 
     const result = mergeConfig(existing, updates)
 
-    expect(result.authFileHash).toBe("existinghash")
+    expect(result.authFileHashes).toEqual({ "old/repo": "existinghash" })
     expect(result.repositories).toEqual(["new/repo"])
   })
 
-  test("mergeConfig allows updating authFileHash", () => {
+  test("mergeConfig allows updating authFileHashes", () => {
     const existing: Partial<AuthSyncConfig> = {
       enabled: true,
-      authFileHash: "oldhash",
+      authFileHashes: { "org/repo": "oldhash" },
     }
     const updates: Partial<AuthSyncConfig> = {
-      authFileHash: "newhash",
+      authFileHashes: { "org/repo": "newhash", "org/repo2": "hash2" },
     }
 
     const result = mergeConfig(existing, updates)
 
-    expect(result.authFileHash).toBe("newhash")
+    expect(result.authFileHashes).toEqual({ "org/repo": "newhash", "org/repo2": "hash2" })
   })
 
-  test("full workflow: load, update hash, save, reload", async () => {
+  test("full workflow: load, update hashes, save, reload", async () => {
     const initialConfig = {
       enabled: true,
       repositories: ["org/repo"],
@@ -414,16 +414,16 @@ describe("authFileHash in config", () => {
     writeFileSync(testConfigPath, JSON.stringify(initialConfig))
 
     const loaded = loadPluginConfigSync(testConfigPath)
-    expect(loaded.authFileHash).toBeUndefined()
+    expect(loaded.authFileHashes).toBeUndefined()
 
     const updated: Partial<AuthSyncConfig> = {
       ...loaded,
-      authFileHash: "newlycomputedhash",
+      authFileHashes: { "org/repo": "newlycomputedhash" },
     }
     await saveConfig(testConfigPath, updated)
 
     const reloaded = loadPluginConfigSync(testConfigPath)
-    expect(reloaded.authFileHash).toBe("newlycomputedhash")
+    expect(reloaded.authFileHashes).toEqual({ "org/repo": "newlycomputedhash" })
     expect(reloaded.enabled).toBe(true)
     expect(reloaded.repositories).toEqual(["org/repo"])
   })

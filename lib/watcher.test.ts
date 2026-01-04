@@ -1,5 +1,5 @@
 import { describe, test, expect, beforeEach, afterEach } from "bun:test"
-import { mkdirSync, writeFileSync, rmSync, existsSync, unlinkSync } from "fs"
+import { mkdirSync, writeFileSync, rmSync, existsSync } from "fs"
 import { join } from "path"
 import { tmpdir } from "os"
 import { computeHash, watchCredentials } from "./watcher"
