@@ -13,7 +13,11 @@ import {
   saveOpencodeConfig,
   isPluginInstalled,
   addPluginToConfig,
+  verifyGithubToken,
+  getGithubReposHttp,
+  type GhRepo,
 } from "./lib/cli-utils"
+import type { GithubMethod } from "./lib/types"
 
 async function main() {
   console.clear()
@@ -22,23 +26,87 @@ async function main() {
 
   const s = p.spinner()
 
-  s.start("Checking prerequisites")
+  const existingConfig = loadPluginConfigSync(PLUGIN_CONFIG_PATH)
+  const existingMethod = existingConfig.method || "gh"
 
-  const hasGh = checkGhCli()
-  if (!hasGh) {
-    s.stop("GitHub CLI not found")
-    p.cancel("Please install GitHub CLI: https://cli.github.com")
-    process.exit(1)
+  // Ask which method to use
+  const method = await p.select({
+    message: "How do you want to authenticate with GitHub?",
+    options: [
+      { value: "gh", label: "GitHub CLI (gh)", hint: "Uses your existing gh auth" },
+      { value: "http", label: "Personal Access Token", hint: "Direct HTTP API calls" },
+    ],
+    initialValue: existingMethod,
+  })
+
+  if (p.isCancel(method)) {
+    p.cancel("Setup cancelled")
+    process.exit(0)
   }
 
-  const hasGhAuth = checkGhAuth()
-  if (!hasGhAuth) {
-    s.stop("GitHub CLI not authenticated")
-    p.cancel("Please run: gh auth login")
-    process.exit(1)
+  let githubToken: string | undefined = existingConfig.githubToken
+  let repos: GhRepo[] = []
+
+  if (method === "gh") {
+    s.start("Checking prerequisites")
+
+    const hasGh = checkGhCli()
+    if (!hasGh) {
+      s.stop("GitHub CLI not found")
+      p.cancel("Please install GitHub CLI: https://cli.github.com")
+      process.exit(1)
+    }
+
+    const hasGhAuth = checkGhAuth()
+    if (!hasGhAuth) {
+      s.stop("GitHub CLI not authenticated")
+      p.cancel("Please run: gh auth login")
+      process.exit(1)
+    }
+
+    s.stop("Prerequisites OK")
+
+    s.start("Fetching your GitHub repositories")
+    repos = getGhRepos()
+    s.stop(`Found ${repos.length} repositories`)
+  } else {
+    // HTTP method - need a token
+    const tokenInput = await p.text({
+      message: "Enter your GitHub Personal Access Token",
+      placeholder: githubToken ? "(using existing token)" : "ghp_xxxxxxxxxxxx",
+      defaultValue: githubToken || "",
+      validate: (value) => {
+        if (!value && !githubToken) {
+          return "Token is required for HTTP method"
+        }
+      },
+    })
+
+    if (p.isCancel(tokenInput)) {
+      p.cancel("Setup cancelled")
+      process.exit(0)
+    }
+
+    githubToken = tokenInput || githubToken
+
+    s.start("Verifying token")
+    const isValid = await verifyGithubToken(githubToken!)
+    if (!isValid) {
+      s.stop("Token verification failed")
+      p.cancel("Invalid GitHub token. Make sure it has 'repo' scope.")
+      process.exit(1)
+    }
+    s.stop("Token verified")
+
+    s.start("Fetching your GitHub repositories")
+    repos = await getGithubReposHttp(githubToken!)
+    s.stop(`Found ${repos.length} repositories`)
   }
 
-  s.stop("Prerequisites OK")
+  if (repos.length === 0) {
+    p.cancel("No repositories found. Make sure you have access to at least one repository.")
+    process.exit(1)
+  }
 
   const opencodeConfig = loadOpencodeConfig()
   const alreadyInstalled = isPluginInstalled(opencodeConfig)
@@ -47,16 +115,6 @@ async function main() {
     p.log.info("Plugin already installed in opencode.json")
   }
 
-  s.start("Fetching your GitHub repositories")
-  const repos = getGhRepos()
-  s.stop(`Found ${repos.length} repositories`)
-
-  if (repos.length === 0) {
-    p.cancel("No repositories found. Make sure you have access to at least one repository.")
-    process.exit(1)
-  }
-
-  const existingConfig = loadPluginConfigSync(PLUGIN_CONFIG_PATH)
   const existingRepos = existingConfig.repositories || []
 
   const repoOptions = repos.map((repo) => ({
@@ -107,11 +165,18 @@ async function main() {
   s.start("Configuring plugin")
 
   mkdirSync(OPENCODE_CONFIG_DIR, { recursive: true })
-  
-  const userUpdates = {
+
+  const userUpdates: Record<string, unknown> = {
     repositories: selectedRepos as string[],
     secretName: secretName || existingSecretName,
+    method: method as GithubMethod,
   }
+
+  // Only include token if using HTTP method
+  if (method === "http" && githubToken) {
+    userUpdates.githubToken = githubToken
+  }
+
   const mergedConfig = mergeConfig(existingConfig, userUpdates)
   const pluginConfig = {
     $schema: "https://raw.githubusercontent.com/activadee/opencode-auth-sync/main/schema.json",
@@ -126,9 +191,11 @@ async function main() {
 
   s.stop("Configuration saved")
 
+  const methodLabel = method === "gh" ? "GitHub CLI" : "HTTP API"
   p.note(
     [
       `${color.dim("Plugin config:")} ~/.config/opencode/opencode-auth-sync.json`,
+      `${color.dim("Method:")}        ${methodLabel}`,
       `${color.dim("Secret name:")}   ${secretName || "OPENCODE_AUTH"}`,
       `${color.dim("Repositories:")}  ${(selectedRepos as string[]).length} selected`,
       "",

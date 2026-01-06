@@ -43,8 +43,24 @@
         "type": "string"
       },
       "description": "Per-repository SHA-256 hashes of last synced auth.json (managed by plugin)"
+    },
+    "method": {
+      "type": "string",
+      "enum": ["gh", "http"],
+      "default": "gh",
+      "description": "Method to use for GitHub API calls: 'gh' (CLI) or 'http' (direct API)"
+    },
+    "githubToken": {
+      "type": "string",
+      "description": "GitHub personal access token (required when method is 'http')"
     }
   },
   "required": ["repositories"],
-  "additionalProperties": false
+  "additionalProperties": false,
+  "if": {
+    "properties": { "method": { "const": "http" } }
+  },
+  "then": {
+    "required": ["repositories", "githubToken"]
+  }
 }

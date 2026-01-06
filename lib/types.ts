@@ -1,3 +1,5 @@
+export type GithubMethod = "gh" | "http"
+
 export interface AuthSyncConfig {
   enabled: boolean
   credentialsPath: string
@@ -5,6 +7,10 @@ export interface AuthSyncConfig {
   repositories: string[]
   debounceMs?: number
   authFileHashes?: Record<string, string>
+  /** Method to use for GitHub API calls: "gh" (CLI) or "http" (direct API) */
+  method?: GithubMethod
+  /** GitHub personal access token (required when method is "http") */
+  githubToken?: string
 }
 
 export interface OAuthEntry {

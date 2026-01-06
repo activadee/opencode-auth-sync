@@ -1,13 +1,14 @@
 import type { Plugin, PluginInput } from "@opencode-ai/plugin"
 import { loadConfig, expandPath, getConfigPath, saveConfig } from "./lib/config"
 import { watchCredentials } from "./lib/watcher"
-import { syncToRepositories, verifyGhAuth } from "./lib/sync"
+import { syncToRepositories, verifyAuth } from "./lib/sync"
 import type { AuthSyncConfig, OpenCodeAuth } from "./lib/types"
 
 const PLUGIN_NAME = "opencode-auth-sync"
 
 export const OpenCodeAuthSyncPlugin: Plugin = async ({ $, client, directory }: PluginInput) => {
   const config = await loadConfig(directory)
+  const method = config.method || "gh"
 
   const showToast = (
     message: string,
@@ -38,12 +39,26 @@ export const OpenCodeAuthSyncPlugin: Plugin = async ({ $, client, directory }: P
     }
   }
 
-  const ghAuthed = await verifyGhAuth($)
-  if (!ghAuthed) {
+  // Validate HTTP method has a token
+  if (method === "http" && !config.githubToken) {
     return {
       event: async ({ event }) => {
         if (event.type === "session.created") {
-          showToast("GitHub CLI not authenticated. Run: gh auth login", "error", 8000)
+          showToast("GitHub token required for HTTP method. Run setup wizard to configure.", "error", 8000)
+        }
+      },
+    }
+  }
+
+  const isAuthed = await verifyAuth($, method, config.githubToken)
+  if (!isAuthed) {
+    const errorMsg = method === "http"
+      ? "GitHub token is invalid or expired. Run setup wizard to update."
+      : "GitHub CLI not authenticated. Run: gh auth login"
+    return {
+      event: async ({ event }) => {
+        if (event.type === "session.created") {
+          showToast(errorMsg, "error", 8000)
         }
       },
     }
@@ -79,7 +94,13 @@ export const OpenCodeAuthSyncPlugin: Plugin = async ({ $, client, directory }: P
     const action = isInitialSync ? "Initial sync" : "Syncing"
     showToast(`${action} to ${reposNeedingSync.length} repo(s)...`, "info", 2000)
 
-    const summary = await syncToRepositories($, reposNeedingSync, config.secretName, raw)
+    const summary = await syncToRepositories(
+      $,
+      reposNeedingSync,
+      config.secretName,
+      raw,
+      { method, githubToken: config.githubToken }
+    )
 
     const updatedHashes = { ...currentHashes }
     for (const result of summary.results) {

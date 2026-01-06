@@ -2,6 +2,8 @@ import { execSync } from "child_process"
 import { existsSync, readFileSync, writeFileSync, mkdirSync } from "fs"
 import { homedir } from "os"
 import { join } from "path"
+import { verifyGithubToken, getGithubReposHttp } from "./github-http"
+import type { GithubMethod } from "./types"
 
 export const OPENCODE_CONFIG_DIR = join(homedir(), ".config", "opencode")
 export const OPENCODE_CONFIG_PATH = join(OPENCODE_CONFIG_DIR, "opencode.json")
@@ -13,6 +15,8 @@ export interface GhRepo {
   isPrivate: boolean
   description: string | null
 }
+
+export { verifyGithubToken, getGithubReposHttp }
 
 export function checkGhCli(): boolean {
   try {

@@ -7,5 +7,6 @@
     "your-username/repo1",
     "your-org/private-repo"
   ],
-  "debounceMs": 1000
+  "debounceMs": 1000,
+  "method": "gh"
 }

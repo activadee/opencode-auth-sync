@@ -10,6 +10,7 @@ export const DEFAULT_CONFIG: AuthSyncConfig = {
   secretName: "OPENCODE_AUTH",
   repositories: [],
   debounceMs: 1000,
+  method: "gh",
 }
 
 export function loadPluginConfigSync(configPath: string): Partial<AuthSyncConfig> {
